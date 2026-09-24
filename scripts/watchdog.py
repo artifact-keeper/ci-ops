@@ -113,7 +113,7 @@ def fmt_age(delta):
     if minutes < 120:
         return f"{minutes}m"
     hours, minutes = divmod(minutes, 60)
-    if hours < 48:
+    if hours < 72:
         return f"{hours}h{minutes:02d}m"
     return f"{hours // 24}d{hours % 24}h"
 
