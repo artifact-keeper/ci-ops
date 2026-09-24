@@ -1,0 +1,6 @@
+self-hosted-runner:
+  labels:
+    - ak-ci-runners
+    - ak-docker-runners
+    - ak-e2e-runners
+    - ak-beefy-runners

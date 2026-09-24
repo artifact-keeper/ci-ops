@@ -1,0 +1,33 @@
+# Synthetic demand on the rocky pools (design section 3.4). It exists only so
+# that the watchdog's STALLED rule can fire on an idle pool: a canary that is
+# queued and never starts is a queued job like any other. It drives nothing.
+# CANARY_STALE in the watchdog fires if these stop succeeding while nothing
+# is queued on the label.
+name: runner-canary
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  canary:
+    strategy:
+      fail-fast: false
+      matrix:
+        label: [ak-ci-runners, ak-docker-runners, ak-e2e-runners]
+    runs-on: ${{ matrix.label }}
+    # Counts from the moment a runner picks the job up; queue time is not capped
+    # here (a canary stuck in the queue is exactly what STALLED looks for).
+    timeout-minutes: 3
+    # Per label, so a dead pool cannot hold back the other labels' canaries.
+    # At most one canary per label is queued or running and one is pending;
+    # a newer pending one replaces the older pending one, so they never pile
+    # up, and the stuck one keeps its created_at, so its queue age keeps growing.
+    concurrency:
+      group: runner-canary-${{ matrix.label }}
+      cancel-in-progress: false
+    steps:
+      - run: echo "$RUNNER_VERSION"; exit 0

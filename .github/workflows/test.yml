@@ -1,0 +1,28 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Watchdog unit tests
+        run: python3 -m unittest discover -s scripts -v
+      - name: Incident 1 replay through the CLI
+        run: |
+          python3 scripts/watchdog.py --fixture scripts/fixtures/incident1-2026-09-24.json \
+            --now 2026-09-24T16:50:00Z --dry-run --state "$RUNNER_TEMP/state.json" | tee "$RUNNER_TEMP/out.txt"
+          grep -q 'would post \[STALLED:ak-ci-runners\]' "$RUNNER_TEMP/out.txt"
