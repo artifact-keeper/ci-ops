@@ -1,0 +1,22 @@
+# PR 4 acceptance test (1): dispatch with label ak-nonexistent-runners; the
+# watchdog must post STALLED for that label within 25 minutes. Then cancel the
+# run: gh run cancel <id> -R artifact-keeper/ci-ops. Dispatched on
+# ak-ci-runners, the same job must produce no post.
+name: test-stall
+
+on:
+  workflow_dispatch:
+    inputs:
+      label:
+        description: runs-on label for the probe job
+        required: true
+        default: ak-nonexistent-runners
+
+permissions: {}
+
+jobs:
+  probe:
+    runs-on: ${{ inputs.label }}
+    timeout-minutes: 3
+    steps:
+      - run: echo "probe on $RUNNER_NAME"

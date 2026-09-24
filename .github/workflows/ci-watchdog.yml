@@ -1,0 +1,83 @@
+# Off-node CI watchdog (design section 3.4). Reads GitHub's view of the Actions
+# queue across the org every 10 minutes and posts to the ops Discord webhook.
+# It is itself dead-manned: the last step pings healthchecks.io, which pages
+# when the pings stop (grace 30 min) or when a run reports /fail.
+name: ci-watchdog
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One evaluation at a time, so two runs never race on the suppression state.
+concurrency:
+  group: ci-watchdog
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      HAS_APP_KEY: ${{ secrets.CI_OPS_APP_PRIVATE_KEY != '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Prefer the ak-ci-ops App: its own 5,000 calls/hour, Actions read only.
+      # CI_OPS_APP_ID may hold the App's client ID (recommended) or its numeric App ID.
+      - name: App token
+        id: app
+        if: vars.CI_OPS_APP_ID != '' && env.HAS_APP_KEY == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.CI_OPS_APP_ID }}
+          private-key: ${{ secrets.CI_OPS_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-actions: read
+
+      # Rolling key: restore the newest state saved under the prefix, save a new
+      # entry at the end of every run.
+      - name: Restore suppression state
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .watchdog-state
+          key: ci-watchdog-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ci-watchdog-state-
+
+      - name: Evaluate rules
+        id: eval
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token || secrets.CI_OPS_TOKEN }}
+          OPS_WEBHOOK_URL: ${{ secrets.OPS_WEBHOOK_URL }}
+        run: python3 scripts/watchdog.py --state .watchdog-state/state.json
+
+      - name: Save suppression state
+        if: always() && hashFiles('.watchdog-state/state.json') != ''
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .watchdog-state
+          key: ci-watchdog-state-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # Success ping only when the evaluation itself succeeded (every rule ran,
+      # or the API was degraded and that was reported; every post delivered).
+      - name: Ping healthchecks.io
+        if: always()
+        env:
+          HC_PING_URL: ${{ secrets.HC_PING_URL }}
+          OUTCOME: ${{ steps.eval.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$HC_PING_URL" ]; then
+            echo "::warning::HC_PING_URL is not set; the watchdog has no dead-man"
+            exit 0
+          fi
+          url="$HC_PING_URL"
+          if [ "$OUTCOME" != "success" ]; then
+            url="${HC_PING_URL%/}/fail"
+          fi
+          curl -fsS -m 10 --retry 3 --data-raw "$OUTCOME $RUN_URL" "$url" > /dev/null
