@@ -1,5 +1,12 @@
 # ci-ops
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/artifact-keeper/.github/main/brand/logo-horizontal-dark.png">
+    <img alt="Artifact Keeper" src="https://raw.githubusercontent.com/artifact-keeper/.github/main/brand/logo-horizontal-light.png" width="360">
+  </picture>
+</p>
+
 Off-node CI health for the artifact-keeper org: a queue watchdog and a runner canary.
 
 Nothing here runs on rocky except the canary jobs themselves. The watchdog runs on
